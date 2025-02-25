@@ -910,3 +910,5 @@ endif()
 if (COIN_USE_CPACK)
   add_subdirectory(cpack.d)
 endif()
+
+add_subdirectory(ModelCreator)
