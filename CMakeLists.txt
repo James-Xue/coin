@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.0...4.0)
 
 set(COIN_MAJOR_VERSION 4)
 set(COIN_MINOR_VERSION 0)
-set(COIN_MICRO_VERSION 2)
+set(COIN_MICRO_VERSION 3)
 set(COIN_BETA_VERSION)
 set(COIN_VERSION ${COIN_MAJOR_VERSION}.${COIN_MINOR_VERSION}.${COIN_MICRO_VERSION}${COIN_BETA_VERSION})
 
@@ -41,6 +41,12 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
 endif()
 
 # ############################################################################
+# Set minimum C++ standard needed to compile the Coin code
+# ############################################################################
+set( CMAKE_CXX_STANDARD 11 CACHE STRING "C++ standard used for the build" )
+message( STATUS "Setting C++ standard: '${CMAKE_CXX_STANDARD}', which is the minimum needed to compile Coin.")
+
+# ############################################################################
 # Include necessary submodules
 # ############################################################################
 
@@ -68,6 +74,8 @@ include(CoinCMakeUtilities)
 option(COIN_BUILD_SHARED_LIBS "Build shared library when ON (default), static when OFF." ON)
 option(COIN_BUILD_TESTS "Build unit tests when ON (default), skips them when OFF." ON)
 option(COIN_BUILD_DOCUMENTATION "Build and install API documentation (requires Doxygen)." OFF)
+option(COIN_BUILD_AWESOME_DOCUMENTATION "Build and install API documentation in new modern style (requires Doxygen)." OFF)
+option(COIN_BUILD_EXAMPLES "Build examples when ON (default), skips them when OFF." OFF)
 cmake_dependent_option(COIN_BUILD_INTERNAL_DOCUMENTATION "Document internal code not part of the API." OFF "COIN_BUILD_DOCUMENTATION" OFF)
 cmake_dependent_option(COIN_BUILD_DOCUMENTATION_MAN "Build Coin man pages." OFF "COIN_BUILD_DOCUMENTATION" OFF)
 cmake_dependent_option(COIN_BUILD_DOCUMENTATION_QTHELP "Build QtHelp documentation." OFF "COIN_BUILD_DOCUMENTATION" OFF)
@@ -102,6 +110,9 @@ cmake_dependent_option(COIN_BUILD_MAC_FRAMEWORK "Build framework instead of dyli
 cmake_dependent_option(COIN_BUILD_MAC_X11 "Build for X11 on Mac OS X when ON. Default is OFF." OFF "APPLE" OFF)
 cmake_dependent_option(COIN_BUILD_MAC_AGL "Build for AGL on Mac OS X when ON. Default is OFF." OFF "APPLE" OFF)
 
+option(COIN_BUILD_GLX "Build for GLX on Linux when ON. Default is ON." ON)
+option(COIN_BUILD_EGL "Build for EGL on Linux when ON. Default is OFF." OFF)
+
 check_include_file_cxx(thread HAVE_STD_THREAD)
 cmake_dependent_option(COIN_DEBUG_CHECK_THREAD "Enable thread check in several central Coin functions." OFF "HAVE_STD_THREAD" OFF)
 
@@ -113,6 +124,8 @@ report_prepare(
   COIN_BUILD_DOCUMENTATION_MAN
   COIN_BUILD_DOCUMENTATION_QTHELP
   COIN_BUILD_DOCUMENTATION_CHM
+  COIN_BUILD_EGL
+  COIN_BUILD_AWESOME_DOCUMENTATION
   COIN_THREADSAFE
   HAVE_VRML97
   COIN_HAVE_JAVASCRIPT
@@ -199,7 +212,7 @@ if(COIN_BUILD_MAC_X11)
     list(APPEND COIN_TARGET_LINK_LIBRARIES ${X11_LIBRARIES} ${X11_GL_LIB} ${X11_GLU_LIB})
   endif()
 else()
-  if(UNIX AND NOT APPLE)
+  if(UNIX AND NOT APPLE AND COIN_BUILD_GLX)
     find_package(X11 REQUIRED)
     list(APPEND COIN_TARGET_INCLUDE_DIRECTORIES ${X11_INCLUDE_DIR})
     list(APPEND COIN_TARGET_LINK_LIBRARIES ${X11_LIBRARIES})
@@ -208,21 +221,40 @@ else()
   if(OPENGL_FOUND)
     set(HAVE_OPENGL 1)
     set(OPENGL_SYSTEM_LIBRARY_NAME "${OPENGL_gl_LIBRARY}${CMAKE_SHARED_LIBRARY_SUFFIX}")
-    if(OpenGL_GLU_FOUND)
-      set(HAVE_GLU 1)
-    endif()
+    if(COIN_BUILD_EGL)
+      if (OpenGL_EGL_FOUND)
+        set(HAVE_EGL 1)
+        if (NOT TARGET OpenGL::EGL)
+          list(APPEND COIN_TARGET_INCLUDE_DIRECTORIES ${OPENGL_EGL_INCLUDE_DIR})
+          list(APPEND COIN_TARGET_LINK_LIBRARIES_GL ${OPENGL_egl_LIBRARY})
+        else()
+          list(APPEND COIN_TARGET_LINK_LIBRARIES_GL OpenGL::EGL)
+        endif()
+      endif()
+    endif ()
     if(APPLE)
       set(GLU_IS_PART_OF_GL 1)
     endif()
     #include_directories("${OPENGL_INCLUDE_DIR}")
     if (NOT TARGET OpenGL::GL)
       list(APPEND COIN_TARGET_INCLUDE_DIRECTORIES ${OPENGL_INCLUDE_DIR})
-      list(APPEND COIN_TARGET_LINK_LIBRARIES ${OPENGL_gl_LIBRARY} ${OPENGL_glu_LIBRARY})
+      list(APPEND COIN_TARGET_LINK_LIBRARIES_GL ${OPENGL_gl_LIBRARY})
     else()
-      list(APPEND COIN_TARGET_LINK_LIBRARIES OpenGL::GL OpenGL::GLU)
+      list(APPEND COIN_TARGET_LINK_LIBRARIES_GL OpenGL::GL)
+    endif()
+    if(OpenGL_GLU_FOUND AND NOT COIN_BUILD_EGL)
+      set(HAVE_GLU 1)
+      if (NOT TARGET OpenGL::GLU)
+        list(APPEND COIN_TARGET_INCLUDE_DIRECTORIES ${OPENGL_INCLUDE_DIR})
+        list(APPEND COIN_TARGET_LINK_LIBRARIES_GL ${OPENGL_glu_LIBRARY})
+      else()
+        list(APPEND COIN_TARGET_LINK_LIBRARIES_GL OpenGL::GLU)
+      endif()
     endif()
   endif()
 endif()
+
+list(APPEND COIN_TARGET_LINK_LIBRARIES ${COIN_TARGET_LINK_LIBRARIES_GL})
 
 set(CMAKE_THREAD_PREFER_PTHREAD 1)
 set(THREADS_PREFER_PTHREAD_FLAG 1)
@@ -671,7 +703,7 @@ elseif(APPLE)
   endif()
 endif()
 
-if(NOT (HAVE_WGL OR HAVE_AGL OR HAVE_CGL OR HAVE_GLX))
+if(NOT (HAVE_WGL OR HAVE_AGL OR HAVE_CGL OR HAVE_GLX OR HAVE_EGL))
   if (NOT TARGET OpenGL::GLX)
     if (OPENGL_glx_LIBRARY)
       list(APPEND COIN_TARGET_LINK_LIBRARIES ${OPENGL_glx_LIBRARY})
@@ -881,7 +913,10 @@ unset(COIN_INTERNAL_DOCUMENTATION_FILES CACHE)
 add_subdirectory(include)
 add_subdirectory(data)
 add_subdirectory(src)
-#add_subdirectory(examples)
+
+if (COIN_BUILD_EXAMPLES)
+  add_subdirectory(examples)
+endif()
 
 if(COIN_BUILD_TESTS)
   enable_testing()

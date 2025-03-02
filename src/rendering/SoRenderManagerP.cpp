@@ -36,6 +36,7 @@
 #include <Inventor/nodes/SoInfo.h>
 #include <Inventor/nodes/SoCamera.h>
 #include <Inventor/nodes/SoPerspectiveCamera.h>
+#include "Inventor/nodes/SoOrthographicCamera.h"
 #include <Inventor/actions/SoGLRenderAction.h>
 #include <Inventor/actions/SoGetBoundingBoxAction.h>
 #include <Inventor/actions/SoGetMatrixAction.h>
@@ -93,12 +94,12 @@ SoRenderManagerP::cleanup(void)
 }
 
 void
-SoRenderManagerP::updateClippingPlanesCB(void * closure, SoSensor * COIN_UNUSED_ARG(sensor))
+SoRenderManagerP::updateClippingPlanesCB(void * COIN_UNUSED_ARG(closure), SoSensor * COIN_UNUSED_ARG(sensor))
 {
-  SoRenderManagerP * thisp = (SoRenderManagerP *) closure;
-  if (thisp->autoclipping != SoRenderManager::NO_AUTO_CLIPPING) {
-    thisp->setClippingPlanes();
-  }
+  //SoRenderManagerP * thisp = (SoRenderManagerP *) closure;
+  //if (thisp->autoclipping != SoRenderManager::NO_AUTO_CLIPPING) {
+  //  thisp->setClippingPlanes();
+  //}
 }
 
 void
@@ -133,7 +134,12 @@ SoRenderManagerP::setClippingPlanes(void)
   float nearval = -box.getMax()[2];
   float farval = -box.getMin()[2];
 
-  if (farval <= 0.0f) return;
+  if (!camera->isOfType(SoOrthographicCamera::getClassTypeId()) && farval <= 0.0f) return;
+
+  if (box.isEmpty()) {
+    nearval = 1;
+    farval = 10;
+  }
 
   if (camera->isOfType(SoPerspectiveCamera::getClassTypeId())) {
     float nearlimit;
@@ -157,8 +163,8 @@ SoRenderManagerP::setClippingPlanes(void)
   }
 
   const float SLACK = 0.001f;
-  const float newnear = nearval * (1.0f - SLACK);
-  const float newfar = farval * (1.0f + SLACK);
+  const float newnear = nearval >= 0 ? nearval * (1.0f - SLACK) : nearval * (1.0f + SLACK);
+  const float newfar = farval >= 0 ? farval * (1.0f + SLACK) : farval * (1.0f - SLACK);
 
   const float neareps = nearval * SLACK * SLACK;
   const float fareps = farval * SLACK * SLACK;
